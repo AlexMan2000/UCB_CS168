@@ -126,6 +126,7 @@ class Socket:
             b: payload data to be sent to the end server
             address:  (ip address, port num)
         Returns:
+            The number of bytes that are actually sent to the destination address
 
         """
         return self.__sock.sendto(b, address)

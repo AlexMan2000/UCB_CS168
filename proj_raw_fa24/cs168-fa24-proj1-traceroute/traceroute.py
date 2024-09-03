@@ -18,6 +18,7 @@ TRACEROUTE_PORT_NUMBER = 33434  # Cisco traceroute port number.
 # single router before giving up and moving on.
 PROBE_ATTEMPT_COUNT = 3
 
+
 class IPv4:
     # Each member below is a field from the IPv4 packet header.  They are
     # listed below in the order they appear in the packet.  All fields should
@@ -26,8 +27,8 @@ class IPv4:
     # You should only modify the __init__() method of this class.
     version: int
     header_len: int  # Note length in bytes, not the value in the packet.
-    tos: int         # Also called DSCP and ECN bits (i.e. on wikipedia).
-    length: int      # Total length of the packet.
+    tos: int  # Also called DSCP and ECN bits (i.e. on wikipedia).
+    length: int  # Total length of the packet.
     id: int
     flags: int
     frag_offset: int
@@ -79,11 +80,13 @@ class UDP:
     cksum: int
 
     def __init__(self, buffer: bytes):
-        pass  # TODO
+        # self.src_port, self.dst_port, self.len, self.cksum = struct.unpack('!HHHH', buffer[:8])
+        pass
 
     def __str__(self) -> str:
         return f"UDP (src_port {self.src_port}, dst_port {self.dst_port}, " + \
             f"len {self.len}, cksum 0x{self.cksum:x})"
+
 
 # TODO feel free to add helper functions if you'd like
 
@@ -108,13 +111,25 @@ def traceroute(sendsock: util.Socket, recvsock: util.Socket, ip: str) \
     """
 
     # TODO Add your implementation
-    for ttl in range(1, TRACEROUTE_MAX_TTL+1):
-        util.print_result([], ttl)
-    return []
+    # for ttl in range(1, TRACEROUTE_MAX_TTL+1):
+    #     util.print_result([], ttl)
+    # return []
+
+    sendsock.set_ttl(1)
+    sendsock.sendto("Potato".encode(), (ip, TRACEROUTE_PORT_NUMBER))
+
+    if recvsock.recv_select():
+        buf, address = recvsock.recvfrom()
+
+        print(f"Packet bytes: {buf.hex()}")
+        print(f"Packet is from IP: {address[0]}")
+        print(f"Packet is from port: {address[1]}")
+
 
 
 if __name__ == '__main__':
     args = util.parse_args()
     ip_addr = util.gethostbyname(args.host)
+    print(ip_addr)
     print(f"traceroute to {args.host} ({ip_addr})")
     traceroute(util.Socket.make_udp(), util.Socket.make_icmp(), ip_addr)
