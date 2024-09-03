@@ -93,6 +93,24 @@ class Socket:
     # Only called on the UDP socket.  Changes the TTL on all future packets
     # sent on this socket to the provided value.
     def set_ttl(self, ttl: int):
+        """
+        Args:
+            ttl: time to live, num of hops
+        Returns:
+        """
+
+        # setsockopt(level, optname, value)
+        """
+        level: Where are you making changes?
+         1. socket.IPPROTO_IP, which means you are making changes specifically to each IP packets
+         2. soclet.SOL_SOCKET, which means you are making changes to socket interface itself  like a global setting       
+        
+        optname: What feature are you changing?
+         1. socket.SO_REUSEADDR: 用于热部署, used to reduce downtime.
+         2. socket.IP_TTL: Straightforward, time to live for each IP packets.
+        
+        value: How are you setting it up?
+        """
         return self.__sock.setsockopt(socket.IPPROTO_IP, socket.IP_TTL, ttl)
 
     # Only called on the UDP socket.  Sends a UDP packet to `address`.
@@ -103,6 +121,13 @@ class Socket:
     #
     # See: https://docs.python.org/3/library/socket.html#socket.socket.sendto
     def sendto(self, b: bytes, address: typing.Tuple[str, int]) -> int:
+        """
+        Args:
+            b: payload data to be sent to the end server
+            address:  (ip address, port num)
+        Returns:
+
+        """
         return self.__sock.sendto(b, address)
 
     # Only called on the ICMP socket.  Recieves a packet from the socket.
@@ -112,6 +137,9 @@ class Socket:
     #
     # See: https://docs.python.org/3/library/socket.html#socket.socket.recvfrom
     def recvfrom(self) -> typing.Tuple[bytes, typing.Tuple[str, int]]:
+        """
+        Returns: (bytes, address) where address is (ip, port)
+        """
         return self.__sock.recvfrom(4096)
 
     # Only called on the ICMP socket.  Blocks until this socket has a packet
@@ -120,6 +148,7 @@ class Socket:
     #
     # See: https://docs.python.org/3/library/select.html#select.select
     def recv_select(self) -> bool:
+        # 用于查看当前线程的哪一个文件描述符是可以读取的
         rlist, _, _ = select.select([self.__sock], [], [], SELECT_TIMEOUT)
         return rlist != []
 
