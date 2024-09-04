@@ -155,6 +155,15 @@ class Socket:
 
 
 def print_result(routers: list[str], ttl: int):
+    """
+
+    Args:
+        routers: list of ip address of the routers along the traceroute
+        ttl:
+
+    Returns:
+
+    """
     if len(routers) == 0:
         print(f"{ttl: >2}: *")
         return

@@ -39,12 +39,25 @@ class IPv4:
     dst: str
 
     def __init__(self, buffer: bytes):
-        pass  # TODO
+        first_byte = format(buffer[0], '08b')
+        self.version = int(first_byte[:4], 2)
+        self.header_len = int(first_byte[4: 8], 2) * 4
+        self.tos = int((format(buffer[1], '08b')), 2)
+        self.length = int(''.join(format(byte, '08b') for byte in buffer[2:4]), 2)
+        self.id = int(''.join(format(byte, '08b') for byte in buffer[4:6]), 2)
+        seventh_byte = format(buffer[6], '08b')
+        self.flags = int(seventh_byte[0:3], 2)
+        self.frag_offset = int(seventh_byte[3:16], 2)
+        self.ttl = int(format(buffer[8], '08b'), 2)
+        self.proto = int(format(buffer[9], '08b'), 2)
+        self.cksum = int(''.join(format(byte, '08b') for byte in buffer[10: 12]), 2)
+        self.src = '.'.join(str(byte) for byte in buffer[12: 16])
+        self.dst = '.'.join(str(byte) for byte in buffer[16: 20])
 
     def __str__(self) -> str:
         return f"IPv{self.version} (tos 0x{self.tos:x}, ttl {self.ttl}, " + \
             f"id {self.id}, flags 0x{self.flags:x}, " + \
-            f"ofsset {self.frag_offset}, " + \
+            f"offset {self.frag_offset}, " + \
             f"proto {self.proto}, header_len {self.header_len}, " + \
             f"len {self.length}, cksum 0x{self.cksum:x}) " + \
             f"{self.src} > {self.dst}"
@@ -56,12 +69,21 @@ class ICMP:
     # host byte order.
     #
     # You should only modify the __init__() function of this class.
-    type: int
-    code: int
+    type: int # 0 for ping response, 11 for traceroute
+    code: int # together with type, show additional information, 0 means TTL expired in transit
     cksum: int
 
     def __init__(self, buffer: bytes):
-        pass  # TODO
+        """
+
+        Args:
+            buffer: icmp header(without ethernet header)
+        """
+        assert len(buffer) == 8  # should be 8 bytes in total
+        bit_string = ''.join(format(byte, '08b') for byte in [*buffer])
+        self.type = int(bit_string[: 8], 2)
+        self.code = int(bit_string[8: 16], 2)
+        self.cksum = int(bit_string[16: 32], 2)
 
     def __str__(self) -> str:
         return f"ICMP (type {self.type}, code {self.code}, " + \
@@ -80,15 +102,21 @@ class UDP:
     cksum: int
 
     def __init__(self, buffer: bytes):
-        # self.src_port, self.dst_port, self.len, self.cksum = struct.unpack('!HHHH', buffer[:8])
-        pass
+        """
+
+        Args:
+            buffer: The header(without ethernet header)
+        """
+        assert len(buffer) == 8  # should be 8 bytes in total
+        bit_string = ''.join(format(byte, '08b') for byte in [*buffer])
+        self.src_port = int(bit_string[: 16], 2)
+        self.dst_port = int(bit_string[16: 32], 2)
+        self.len = int(bit_string[32: 48], 2)
+        self.cksum = int(bit_string[48: 64], 2)
 
     def __str__(self) -> str:
         return f"UDP (src_port {self.src_port}, dst_port {self.dst_port}, " + \
             f"len {self.len}, cksum 0x{self.cksum:x})"
-
-
-# TODO feel free to add helper functions if you'd like
 
 def traceroute(sendsock: util.Socket, recvsock: util.Socket, ip: str) \
         -> list[list[str]]:
@@ -111,21 +139,38 @@ def traceroute(sendsock: util.Socket, recvsock: util.Socket, ip: str) \
     """
 
     # TODO Add your implementation
-    # for ttl in range(1, TRACEROUTE_MAX_TTL+1):
-    #     util.print_result([], ttl)
-    # return []
+    res = []
+    routers_ttl = []
+    routers_ttl_set = set()
+    for ttl in range(1, TRACEROUTE_MAX_TTL+1):
+        sendsock.set_ttl(ttl)
+        # For stability, for each ttl, send multiple packets to compensate for the possible packet loss
+        for _ in range(PROBE_ATTEMPT_COUNT):
+            sendsock.sendto("Potato".encode(), (ip, TRACEROUTE_PORT_NUMBER))
 
-    sendsock.set_ttl(1)
-    sendsock.sendto("Potato".encode(), (ip, TRACEROUTE_PORT_NUMBER))
+            if recvsock.recv_select():
+                buf, address = recvsock.recvfrom()
+                # Convert the received packet header to corresponding class
+                ip_header = IPv4(buf)
+                curr_router_src = ip_header.src
+                if curr_router_src not in routers_ttl_set:
+                    routers_ttl_set.add(curr_router_src)
+                    routers_ttl.append(curr_router_src)
 
-    if recvsock.recv_select():
-        buf, address = recvsock.recvfrom()
 
-        print(f"Packet bytes: {buf.hex()}")
-        print(f"Packet is from IP: {address[0]}")
-        print(f"Packet is from port: {address[1]}")
+            # outer_ip_len = int(''.join(format(buf[0], '08b'))[4:8], 2) * 4
+            # icmp_header_buf = buf[outer_ip_len: outer_ip_len + 8]
+            #
+            # print(ICMP(icmp_header_buf))
+            #
+            # inner_ip_len = int(''.join(format(byte, '08b') for byte in buf[outer_ip_len + 8:])[4:8],2) * 4
+            # udp_header_buf = buf[outer_ip_len + 8 + inner_ip_len: outer_ip_len + 8 + inner_ip_len + 8]
+            # print(UDP(udp_header_buf))
 
+        util.print_result(routers_ttl[:ttl], ttl)
+        res.append(routers_ttl[:ttl])
 
+    return res
 
 if __name__ == '__main__':
     args = util.parse_args()
