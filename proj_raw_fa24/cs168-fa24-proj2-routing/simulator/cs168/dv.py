@@ -116,6 +116,8 @@ class DVRouterBase(api.Entity):
         Called when you should add a static route to your routing table
 
         You probably want to override this.
+        @param host:
+        @param port:
         """
         pass
 

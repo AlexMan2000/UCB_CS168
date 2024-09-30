@@ -77,7 +77,7 @@ class DVRouter(DVRouterBase):
         assert port in self.ports.get_all_ports(), "Link should be up, but is not."
 
         ##### Begin Stage 1 #####
-
+        self.table[host] = TableEntry(dst=host, port=port, latency=self.ports.get_latency(port), expire_time=api.current_time() + FOREVER)
         ##### End Stage 1 #####
 
     def handle_data_packet(self, packet, in_port):
@@ -92,7 +92,14 @@ class DVRouter(DVRouterBase):
         """
         
         ##### Begin Stage 2 #####
-
+        if packet.dst not in self.table:
+            # Table doesn't contain the route to the dst host
+            return
+        table_entry = self.table[packet.dst]
+        if table_entry.latency >= INFINITY:
+            # Cannot reach the destination host, so don't send
+            return
+        self.send(packet, port=table_entry.port)
         ##### End Stage 2 #####
 
     def send_routes(self, force=False, single_port=None):
@@ -106,9 +113,23 @@ class DVRouter(DVRouterBase):
                             be used in conjunction with handle_link_up.
         :return: nothing.
         """
+        if self.SPLIT_HORIZON and self.POISON_REVERSE:
+            raise RuntimeError("Cannot set SPLIT_HORIZON and POISON_REVERSE to be True at the same time!")
         
         ##### Begin Stages 3, 6, 7, 8, 10 #####
-
+        for route_dst, table_entry in self.table.items():
+            for port in self.ports.get_all_ports():
+                if self.SPLIT_HORIZON:
+                    if port != table_entry.port:
+                        # 当前端口是不是下家，是的话就不发
+                        self.send_route(port, route_dst, INFINITY if table_entry.latency >=INFINITY else table_entry.latency)
+                elif self.POISON_REVERSE:
+                    if port == table_entry.port:
+                        self.send_route(port, route_dst, INFINITY)
+                    else:
+                        self.send_route(port, route_dst, INFINITY if table_entry.latency >=INFINITY else table_entry.latency)
+                else:
+                    self.send_route(port, route_dst, INFINITY if table_entry.latency >=INFINITY else table_entry.latency)
         ##### End Stages 3, 6, 7, 8, 10 #####
 
     def expire_routes(self):
@@ -118,7 +139,17 @@ class DVRouter(DVRouterBase):
         """
         
         ##### Begin Stages 5, 9 #####
-
+        should_expire_key = []
+        for route_dst, table_entry in self.table.items():
+            if api.current_time() >= table_entry.expire_time:
+                self.s_log(f"Router {self.table.owner}'s entry of {route_dst} has expired!")
+                should_expire_key.append(route_dst)
+        for route_dst in should_expire_key:
+            if self.POISON_EXPIRED:
+                port = self.table[route_dst].port
+                self.table[route_dst] = TableEntry(dst=route_dst, port=port, latency=INFINITY, expire_time=api.current_time()+self.ROUTE_TTL)
+            else:
+                self.table.pop(route_dst)
         ##### End Stages 5, 9 #####
 
     def handle_route_advertisement(self, route_dst, route_latency, port):
@@ -132,7 +163,36 @@ class DVRouter(DVRouterBase):
         """
         
         ##### Begin Stages 4, 10 #####
-
+        # Entry doesn't exist
+        if route_dst not in self.table:
+            init_latency = self.ports.get_latency(port) + route_latency
+            self.table[route_dst] = TableEntry(
+                dst=route_dst,
+                port=port,
+                latency=init_latency,
+                expire_time=api.current_time()+self.ROUTE_TTL)
+        next_hop_info = self.table[route_dst]
+        next_hop_port = next_hop_info.port
+        # Rule 2: Update from next-hop
+        if port == next_hop_port:
+            self.table[route_dst] = TableEntry(
+                dst=route_dst,
+                port=next_hop_port,
+                latency=route_latency + self.ports.get_latency(next_hop_port),
+                expire_time=api.current_time() + self.ROUTE_TTL
+            )
+        else:
+            # Rule 1: Distributed Bellman Ford
+            new_latency = route_latency + self.ports.get_latency(port)
+            # Tiebreak and choose the current latency instead of new one
+            # More stable
+            if new_latency < next_hop_info.latency:
+                self.table[route_dst] = TableEntry(
+                    dst=route_dst,
+                    port=port,
+                    latency=new_latency,
+                    expire_time=api.current_time() + self.ROUTE_TTL
+                )
         ##### End Stages 4, 10 #####
 
     def handle_link_up(self, port, latency):
